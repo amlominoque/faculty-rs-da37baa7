@@ -1,6 +1,26 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -18,7 +38,8 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Search, ArrowUpDown } from "lucide-react";
+import { Search, ArrowUpDown, Plus, Pencil, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -52,6 +73,9 @@ interface Faculty {
   remarks: string;
 }
 
+const FIELDS: Field[] = ["Biochemistry", "Applied Physics", "Computer Science"];
+const STATUSES: Status[] = ["Permanent", "Lecturer"];
+
 const SAMPLE: Faculty[] = [
   { id: 1, name: "Dr. Maria Santos", semester: "1st Sem 2025-2026", rank: "Professor", status: "Permanent", field: "Computer Science", remarks: "Department Chair" },
   { id: 2, name: "Juan Dela Cruz", semester: "1st Sem 2025-2026", rank: "Instructor I", status: "Lecturer", field: "Applied Physics", remarks: "Part-time" },
@@ -61,16 +85,54 @@ const SAMPLE: Faculty[] = [
   { id: 6, name: "Dr. Paolo Aquino", semester: "1st Sem 2025-2026", rank: "Professor", status: "Permanent", field: "Applied Physics", remarks: "" },
 ];
 
+const STORAGE_KEY = "mcsu.faculty.records.v1";
+
+const emptyForm = (): Omit<Faculty, "id"> => ({
+  name: "",
+  semester: "",
+  rank: "",
+  status: "Permanent",
+  field: "Computer Science",
+  remarks: "",
+});
+
 function Index() {
+  const [records, setRecords] = useState<Faculty[]>(SAMPLE);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [field, setField] = useState<string>("all");
   const [sortKey, setSortKey] = useState<"name" | "rank">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<Omit<Faculty, "id">>(emptyForm());
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+
+  // Load from localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setRecords(JSON.parse(raw));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Persist
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    } catch {
+      // ignore
+    }
+  }, [records]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const rows = SAMPLE.filter((f) => {
+    const rows = records.filter((f) => {
       if (q && !f.name.toLowerCase().includes(q)) return false;
       if (status !== "all" && f.status !== status) return false;
       if (field !== "all" && f.field !== field) return false;
@@ -81,7 +143,7 @@ function Index() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [query, status, field, sortKey, sortDir]);
+  }, [records, query, status, field, sortKey, sortDir]);
 
   const toggleSort = (key: "name" | "rank") => {
     if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -97,19 +159,72 @@ function Index() {
     setField("all");
   };
 
+  const openAdd = () => {
+    setEditingId(null);
+    setForm(emptyForm());
+    setDialogOpen(true);
+  };
+
+  const openEdit = (f: Faculty) => {
+    setEditingId(f.id);
+    setForm({
+      name: f.name,
+      semester: f.semester,
+      rank: f.rank,
+      status: f.status,
+      field: f.field,
+      remarks: f.remarks,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name.trim() || !form.rank.trim() || !form.semester.trim()) {
+      toast.error("Name, rank, and semester are required.");
+      return;
+    }
+    if (editingId === null) {
+      const nextId = records.length ? Math.max(...records.map((r) => r.id)) + 1 : 1;
+      setRecords([...records, { id: nextId, ...form }]);
+      toast.success("Faculty added.");
+    } else {
+      setRecords(records.map((r) => (r.id === editingId ? { id: editingId, ...form } : r)));
+      toast.success("Faculty updated.");
+    }
+    setDialogOpen(false);
+  };
+
+  const confirmDelete = () => {
+    if (deleteId === null) return;
+    setRecords(records.filter((r) => r.id !== deleteId));
+    toast.success("Faculty removed.");
+    setDeleteId(null);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-primary text-primary-foreground border-b-4 border-accent">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 py-6">
-          <p className="text-xs uppercase tracking-widest text-accent font-semibold">
-            University of the Philippines
-          </p>
-          <h1 className="mt-1 text-2xl sm:text-3xl font-bold">
-            Faculty Record System
-          </h1>
-          <p className="text-sm opacity-90 mt-1">
-            Mathematical and Computing Sciences Unit
-          </p>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-widest text-accent font-semibold">
+                University of the Philippines
+              </p>
+              <h1 className="mt-1 text-2xl sm:text-3xl font-bold truncate">
+                Faculty Record System
+              </h1>
+              <p className="text-sm opacity-90 mt-1">
+                Mathematical and Computing Sciences Unit
+              </p>
+            </div>
+            <Button
+              onClick={openAdd}
+              className="shrink-0 bg-accent text-accent-foreground hover:bg-accent/90"
+            >
+              <Plus className="h-4 w-4 mr-1" /> Add Faculty
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -203,12 +318,13 @@ function Index() {
                   <TableHead>Field</TableHead>
                   <TableHead>Semester</TableHead>
                   <TableHead>Remarks</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
                       No faculty records match your filters.
                     </TableCell>
                   </TableRow>
@@ -231,6 +347,27 @@ function Index() {
                       <TableCell>{f.field}</TableCell>
                       <TableCell className="text-muted-foreground">{f.semester}</TableCell>
                       <TableCell className="text-muted-foreground">{f.remarks || "—"}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="inline-flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEdit(f)}
+                            aria-label={`Edit ${f.name}`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeleteId(f.id)}
+                            aria-label={`Delete ${f.name}`}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -243,6 +380,133 @@ function Index() {
       <footer className="mx-auto max-w-6xl px-4 sm:px-6 py-6 text-center text-xs text-muted-foreground">
         © Mathematical and Computing Sciences Unit
       </footer>
+
+      {/* Add / Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {editingId === null ? "Add Faculty" : "Edit Faculty"}
+            </DialogTitle>
+            <DialogDescription>
+              {editingId === null
+                ? "Enter the faculty member's information."
+                : "Update the faculty member's information."}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="name">Faculty Name</Label>
+              <Input
+                id="name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="e.g. Dr. Maria Santos"
+                required
+              />
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="rank">Rank</Label>
+                <Input
+                  id="rank"
+                  value={form.rank}
+                  onChange={(e) => setForm({ ...form, rank: e.target.value })}
+                  placeholder="e.g. Assistant Professor"
+                  required
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="semester">Semester</Label>
+                <Input
+                  id="semester"
+                  value={form.semester}
+                  onChange={(e) => setForm({ ...form, semester: e.target.value })}
+                  placeholder="e.g. 1st Sem 2025-2026"
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Status</Label>
+                <Select
+                  value={form.status}
+                  onValueChange={(v) => setForm({ ...form, status: v as Status })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Field</Label>
+                <Select
+                  value={form.field}
+                  onValueChange={(v) => setForm({ ...form, field: v as Field })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FIELDS.map((f) => (
+                      <SelectItem key={f} value={f}>
+                        {f}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="remarks">Remarks</Label>
+              <Textarea
+                id="remarks"
+                value={form.remarks}
+                onChange={(e) => setForm({ ...form, remarks: e.target.value })}
+                placeholder="Optional notes"
+                rows={3}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" className="bg-primary text-primary-foreground hover:bg-primary/90">
+                {editingId === null ? "Add Faculty" : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={deleteId !== null} onOpenChange={(o) => !o && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete faculty record?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
