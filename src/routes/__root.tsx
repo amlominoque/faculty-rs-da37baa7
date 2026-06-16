@@ -7,10 +7,9 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
@@ -38,9 +37,6 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -78,18 +74,24 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Faculty Hub is a responsive web application for managing faculty records." },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Faculty Hub is a responsive web application for managing faculty records." },
+      { title: "Faculty Hub" },
+      {
+        name: "description",
+        content: "Faculty Hub is a responsive web application for managing faculty records.",
+      },
+      { name: "author", content: "Faculty Hub" },
+      { property: "og:title", content: "Faculty Hub" },
+      {
+        property: "og:description",
+        content: "Faculty Hub is a responsive web application for managing faculty records.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
-      { name: "twitter:title", content: "Lovable App" },
-      { name: "twitter:description", content: "Faculty Hub is a responsive web application for managing faculty records." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/83d2533d-bc16-4e1e-830f-ee9630b9419d/id-preview-0baaf58b--adc3917d-dc53-417c-b6fd-f7ed7c7ef1bb.lovable.app-1781434254182.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/83d2533d-bc16-4e1e-830f-ee9630b9419d/id-preview-0baaf58b--adc3917d-dc53-417c-b6fd-f7ed7c7ef1bb.lovable.app-1781434254182.png" },
+      { name: "twitter:title", content: "Faculty Hub" },
+      {
+        name: "twitter:description",
+        content: "Faculty Hub is a responsive web application for managing faculty records.",
+      },
     ],
     links: [
       {

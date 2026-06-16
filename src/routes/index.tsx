@@ -38,6 +38,18 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  createFacultyRecord,
+  deleteFacultyRecord,
+  listFacultyRecords,
+  updateFacultyRecord,
+} from "@/lib/api/faculty.functions";
+import {
+  type FacultyField,
+  type FacultyInput,
+  type FacultyRecord,
+  type FacultyStatus,
+} from "@/lib/supabase";
 import { Search, ArrowUpDown, Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -60,34 +72,10 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type Status = "Permanent" | "Lecturer";
-type Field = "Biochemistry" | "Applied Physics" | "Computer Science";
+const FIELDS: FacultyField[] = ["Biochemistry", "Applied Physics", "Computer Science"];
+const STATUSES: FacultyStatus[] = ["Permanent", "Lecturer"];
 
-interface Faculty {
-  id: number;
-  name: string;
-  semester: string;
-  rank: string;
-  status: Status;
-  field: Field;
-  remarks: string;
-}
-
-const FIELDS: Field[] = ["Biochemistry", "Applied Physics", "Computer Science"];
-const STATUSES: Status[] = ["Permanent", "Lecturer"];
-
-const SAMPLE: Faculty[] = [
-  { id: 1, name: "Dr. Maria Santos", semester: "1st Sem 2025-2026", rank: "Professor", status: "Permanent", field: "Computer Science", remarks: "Department Chair" },
-  { id: 2, name: "Juan Dela Cruz", semester: "1st Sem 2025-2026", rank: "Instructor I", status: "Lecturer", field: "Applied Physics", remarks: "Part-time" },
-  { id: 3, name: "Dr. Ana Reyes", semester: "1st Sem 2025-2026", rank: "Associate Professor", status: "Permanent", field: "Biochemistry", remarks: "On research load" },
-  { id: 4, name: "Mark Villanueva", semester: "2nd Sem 2024-2025", rank: "Assistant Professor", status: "Permanent", field: "Computer Science", remarks: "" },
-  { id: 5, name: "Liza Mendoza", semester: "1st Sem 2025-2026", rank: "Lecturer III", status: "Lecturer", field: "Biochemistry", remarks: "Visiting" },
-  { id: 6, name: "Dr. Paolo Aquino", semester: "1st Sem 2025-2026", rank: "Professor", status: "Permanent", field: "Applied Physics", remarks: "" },
-];
-
-const STORAGE_KEY = "mcsu.faculty.records.v1";
-
-const emptyForm = (): Omit<Faculty, "id"> => ({
+const emptyForm = (): FacultyInput => ({
   name: "",
   semester: "",
   rank: "",
@@ -97,7 +85,10 @@ const emptyForm = (): Omit<Faculty, "id"> => ({
 });
 
 function Index() {
-  const [records, setRecords] = useState<Faculty[]>(SAMPLE);
+  const [records, setRecords] = useState<FacultyRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [field, setField] = useState<string>("all");
@@ -106,29 +97,36 @@ function Index() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<Omit<Faculty, "id">>(emptyForm());
+  const [form, setForm] = useState<FacultyInput>(emptyForm());
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
-  // Load from localStorage
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setRecords(JSON.parse(raw));
-    } catch {
-      // ignore
-    }
-  }, []);
+    let cancelled = false;
 
-  // Persist
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-    } catch {
-      // ignore
+    async function loadRecords() {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const data = await listFacultyRecords();
+        if (!cancelled) setRecords(data);
+      } catch (error) {
+        console.error(error);
+        if (!cancelled) {
+          setRecords([]);
+          setLoadError("Could not load Supabase records. Check the table and environment keys.");
+          toast.error("Could not load Supabase records.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
-  }, [records]);
+
+    void loadRecords();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -165,7 +163,7 @@ function Index() {
     setDialogOpen(true);
   };
 
-  const openEdit = (f: Faculty) => {
+  const openEdit = (f: FacultyRecord) => {
     setEditingId(f.id);
     setForm({
       name: f.name,
@@ -178,28 +176,47 @@ function Index() {
     setDialogOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim() || !form.rank.trim() || !form.semester.trim()) {
       toast.error("Name, rank, and semester are required.");
       return;
     }
-    if (editingId === null) {
-      const nextId = records.length ? Math.max(...records.map((r) => r.id)) + 1 : 1;
-      setRecords([...records, { id: nextId, ...form }]);
-      toast.success("Faculty added.");
-    } else {
-      setRecords(records.map((r) => (r.id === editingId ? { id: editingId, ...form } : r)));
-      toast.success("Faculty updated.");
+
+    setSaving(true);
+    try {
+      if (editingId === null) {
+        const created = await createFacultyRecord({ data: form });
+        setRecords([...records, created]);
+        toast.success("Faculty added.");
+      } else {
+        const updated = await updateFacultyRecord({ data: { id: editingId, record: form } });
+        setRecords(records.map((r) => (r.id === editingId ? updated : r)));
+        toast.success("Faculty updated.");
+      }
+      setDialogOpen(false);
+    } catch (error) {
+      console.error(error);
+      toast.error("Could not save faculty record.");
+    } finally {
+      setSaving(false);
     }
-    setDialogOpen(false);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (deleteId === null) return;
-    setRecords(records.filter((r) => r.id !== deleteId));
-    toast.success("Faculty removed.");
-    setDeleteId(null);
+    setSaving(true);
+    try {
+      await deleteFacultyRecord({ data: { id: deleteId } });
+      setRecords(records.filter((r) => r.id !== deleteId));
+      toast.success("Faculty removed.");
+      setDeleteId(null);
+    } catch (error) {
+      console.error(error);
+      toast.error("Could not delete faculty record.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -214,9 +231,7 @@ function Index() {
               <h1 className="mt-1 text-2xl sm:text-3xl font-bold truncate">
                 Faculty Record System
               </h1>
-              <p className="text-sm opacity-90 mt-1">
-                Mathematical and Computing Sciences Unit
-              </p>
+              <p className="text-sm opacity-90 mt-1">Mathematical and Computing Sciences Unit</p>
             </div>
             <Button
               onClick={openAdd}
@@ -287,11 +302,14 @@ function Index() {
 
         <section className="bg-card border rounded-lg shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/40">
-            <h2 className="font-semibold text-foreground">
-              Faculty Records
-            </h2>
+            <div>
+              <h2 className="font-semibold text-foreground">Faculty Records</h2>
+              {loadError ? <p className="mt-1 text-xs text-destructive">{loadError}</p> : null}
+            </div>
             <span className="text-sm text-muted-foreground">
-              {filtered.length} {filtered.length === 1 ? "record" : "records"}
+              {loading
+                ? "Loading..."
+                : `${filtered.length} ${filtered.length === 1 ? "record" : "records"}`}
             </span>
           </div>
           <div className="overflow-x-auto">
@@ -322,7 +340,13 @@ function Index() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.length === 0 ? (
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                      Loading faculty records from Supabase...
+                    </TableCell>
+                  </TableRow>
+                ) : filtered.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
                       No faculty records match your filters.
@@ -385,9 +409,7 @@ function Index() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              {editingId === null ? "Add Faculty" : "Edit Faculty"}
-            </DialogTitle>
+            <DialogTitle>{editingId === null ? "Add Faculty" : "Edit Faculty"}</DialogTitle>
             <DialogDescription>
               {editingId === null
                 ? "Enter the faculty member's information."
@@ -432,7 +454,7 @@ function Index() {
                 <Label>Status</Label>
                 <Select
                   value={form.status}
-                  onValueChange={(v) => setForm({ ...form, status: v as Status })}
+                  onValueChange={(v) => setForm({ ...form, status: v as FacultyStatus })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -450,7 +472,7 @@ function Index() {
                 <Label>Field</Label>
                 <Select
                   value={form.field}
-                  onValueChange={(v) => setForm({ ...form, field: v as Field })}
+                  onValueChange={(v) => setForm({ ...form, field: v as FacultyField })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -476,11 +498,20 @@ function Index() {
               />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDialogOpen(false)}
+                disabled={saving}
+              >
                 Cancel
               </Button>
-              <Button type="submit" className="bg-primary text-primary-foreground hover:bg-primary/90">
-                {editingId === null ? "Add Faculty" : "Save Changes"}
+              <Button
+                type="submit"
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+                disabled={saving}
+              >
+                {saving ? "Saving..." : editingId === null ? "Add Faculty" : "Save Changes"}
               </Button>
             </DialogFooter>
           </form>
@@ -492,17 +523,16 @@ function Index() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete faculty record?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone.
-            </AlertDialogDescription>
+            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
+              disabled={saving}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete
+              {saving ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
